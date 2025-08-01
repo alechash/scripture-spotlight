@@ -11,6 +11,7 @@ import HotKey
 class AppDelegate: NSObject, NSApplicationDelegate {
     var hotKey: HotKey?
     var window: NSWindow?
+    var statusItem: NSStatusItem?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         hotKey = HotKey(key: .j, modifiers: [.command, .shift])
@@ -22,6 +23,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Open the TipsView window (Settings) explicitly on launch
         DispatchQueue.main.async {
             NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+        }
+        // Add menu bar status item
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        if let button = statusItem?.button {
+            button.image = NSImage(systemSymbolName: "book.fill", accessibilityDescription: "Scripture Shortcut")
+            button.action = #selector(showFromMenu)
+            button.target = self
         }
     }
 
@@ -48,13 +56,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         newWindow.isReleasedWhenClosed = false
         newWindow.contentView?.superview?.wantsLayer = true
         newWindow.contentView?.superview?.layer?.cornerRadius = 12
-        newWindow.contentView?.superview?.layer?.backgroundColor = NSColor.windowBackgroundColor.withAlphaComponent(0.9).cgColor
+        newWindow.contentView?.superview?.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.9).cgColor
         newWindow.level = .floating
         newWindow.center()
         newWindow.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         NSRunningApplication.current.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
         window = newWindow
+    }
+    
+    @objc func showFromMenu() {
+        showInputOverlay()
     }
 }
 
@@ -65,6 +77,7 @@ struct Scripture_SpotlightApp: App {
     var body: some Scene {
         Settings {
             TipsView()
+                .preferredColorScheme(.dark)
         }
     }
 }
@@ -85,10 +98,14 @@ struct TipsView: View {
             }
             Text("JW Library must be installed and properly configured for these links to open.")
                 .font(.footnote)
-                .foregroundColor(.gray)
+                .foregroundColor(.secondary)
         }
         .padding()
+        .cornerRadius(14)
+        .padding()
         .frame(minWidth: 400, minHeight: 250)
+        .background(Color(.darkGray).opacity(0.1))
+        .preferredColorScheme(.dark)
     }
 }
 
@@ -99,53 +116,60 @@ struct InputOverlayView: View {
     var onSubmit: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("📖 Scripture Spotlight")
-                .font(.title2)
-                .bold()
+        ZStack {
+            Color(.windowBackgroundColor).opacity(0.97)
+                .cornerRadius(18)
+                .shadow(radius: 24)
+            VStack(alignment: .leading, spacing: 16) {
+                Text("📖 Scripture Spotlight")
+                    .font(.title2)
+                    .bold()
 
-            Text("Press ⏎ to launch JW Library with your reference.")
-                .font(.subheadline)
+                Text("Press ⏎ to launch JW Library with your reference.")
+                    .font(.subheadline)
 
-            TextField("e.g., John 3:16 or wt Sep 2025", text: $input)
-                .textFieldStyle(RoundedBorderTextFieldStyle())
-                .focused($isFocused)
-                .onSubmit {
+                TextField("e.g., John 3:16 or wt Sep 2025", text: $input)
+                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                    .focused($isFocused)
+                    .onSubmit {
+                        ScriptureLauncher.shared.handleInput(input)
+                        onSubmit()
+                    }
+
+                Button("Open") {
                     ScriptureLauncher.shared.handleInput(input)
                     onSubmit()
                 }
+                .keyboardShortcut(.defaultAction)
 
-            Button("Open") {
-                ScriptureLauncher.shared.handleInput(input)
-                onSubmit()
-            }
-            .keyboardShortcut(.defaultAction)
+                DisclosureGroup("Tips & Instructions", isExpanded: $showTips) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("• You can launch this tool from anywhere using ⌘⇧J.")
+                        Text("• You can also type scripture references directly in Spotlight")
 
-            DisclosureGroup("Tips & Instructions", isExpanded: $showTips) {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("• You can launch this tool from anywhere using ⌘⇧J.")
-                    Text("• You can also type scripture references directly in Spotlight")
+                        Text("✅ Supported formats:")
+                            .font(.headline)
+                            .padding(.top, 6)
 
-                    Text("✅ Supported formats:")
-                        .font(.headline)
-                        .padding(.top, 6)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("• `John 3:16` → Opens that verse")
+                            Text("• `wt sep 2025` → Opens September 2025 Watchtower")
+                            Text("• `1 Pet 2:9` → Works with abbreviations")
+                        }
 
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("• `John 3:16` → Opens that verse")
-                        Text("• `wt sep 2025` → Opens September 2025 Watchtower")
-                        Text("• `1 Pet 2:9` → Works with abbreviations")
+                        Text("⚠️ JW Library must be installed and properly configured for these links to open.")
+                            .font(.footnote)
+                            .foregroundColor(.secondary)
                     }
-
-                    Text("⚠️ JW Library must be installed and properly configured for these links to open.")
-                        .font(.footnote)
-                        .foregroundColor(.gray)
+                    .padding(.top, 4)
                 }
-                .padding(.top, 4)
-            }
 
+            }
+            .padding()
+            .frame(minWidth: 420)
         }
         .padding()
-        .frame(width: 420)
+        .preferredColorScheme(.dark)
         .onAppear {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                 isFocused = true
