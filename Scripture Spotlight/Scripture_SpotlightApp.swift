@@ -252,6 +252,20 @@ class ScriptureLauncher {
                 return URL(string: "jwlibrary:///finder?srcid=jwlshare&wtlocale=E&prefer=lang&pub=wp\(yy)&issue=\(yearStr)\(mm)")
             }
         }
+        
+        if (input == "dt" || input == "daily" || input == "daily text") {
+            let dateFormatter = DateFormatter()
+            dateFormatter.dateFormat = "YYYYMMDD"
+
+            let formattedDate = dateFormatter.string(from: Date())
+            
+            let urlStr = "https://www.jw.org/finder?srcid=jwlshare&wtlocale=E&prefer=lang&alias=daily-text&date=\(formattedDate)"
+
+            print("Daily Text URL: \(urlStr)")
+
+            return URL(string: urlStr)
+
+        }
 
         return nil
     }

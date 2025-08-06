@@ -99,6 +99,22 @@ struct OpenScriptureIntent: AppIntent {
             }
         }
 
+        if (input == "dt" || input == "daily" || input == "daily text") {
+            let dateFormatter = DateFormatter()
+            dateFormatter.dateFormat = "YYYYMMDD"
+
+            let formattedDate = dateFormatter.string(from: Date())
+            
+            let urlStr = "https://www.jw.org/finder?srcid=jwlshare&wtlocale=E&prefer=lang&alias=daily-text&date=\(formattedDate)"
+
+            print("Daily Text URL: \(urlStr)")
+
+            if let url = URL(string: urlStr) {
+                try await NSWorkspace.shared.open(url, configuration: .init())
+            }
+
+        }
+
         return .result()
     }
 }
