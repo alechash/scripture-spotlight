@@ -8,6 +8,16 @@
 import SwiftUI
 import HotKey
 import AppKit
+import ServiceManagement
+
+extension Notification.Name {
+    static let ScriptureSpotlightFocusField = Notification.Name("ScriptureSpotlightFocusField")
+}
+
+final class SpotlightPanel: NSPanel {
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { true }
+}
 
 class AppDelegate: NSObject, NSApplicationDelegate {
     var hotKey: HotKey?
@@ -35,8 +45,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
     
     func showInputOverlay() {
-        if window != nil {
-            window?.makeKeyAndOrderFront(nil)
+        if let win = window {
+            win.orderFrontRegardless()
+            NSApp.activate(ignoringOtherApps: true)
+            NSRunningApplication.current.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                NotificationCenter.default.post(name: .ScriptureSpotlightFocusField, object: nil)
+            }
             return
         }
         
@@ -45,29 +60,79 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
         
         let hosting = NSHostingController(rootView: inputView)
-        let newWindow = NSWindow(contentViewController: hosting)
-        newWindow.setContentSize(NSSize(width: 440, height: 360))
-        newWindow.styleMask = [.titled, .closable]
-        newWindow.titleVisibility = .hidden
-        newWindow.titlebarAppearsTransparent = true
-        newWindow.isMovableByWindowBackground = true
-        newWindow.isOpaque = false
-        newWindow.hasShadow = true
-        newWindow.backgroundColor = .clear
-        newWindow.isReleasedWhenClosed = false
-        newWindow.contentView?.superview?.wantsLayer = true
-        newWindow.contentView?.superview?.layer?.cornerRadius = 12
-        newWindow.contentView?.superview?.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.9).cgColor
-        newWindow.level = .floating
-        newWindow.center()
-        newWindow.makeKeyAndOrderFront(nil)
+        let panel = SpotlightPanel(contentViewController: hosting)
+        
+            // Spotlight-like size
+        panel.setContentSize(NSSize(width: 760, height: 260))
+        
+            // Borderless + clear so AppKit doesn't draw its own background panel
+        panel.styleMask = [.borderless]
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = true
+        panel.hidesOnDeactivate = true
+        panel.isFloatingPanel = true
+        panel.level = .statusBar
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
+        
+            // Clip the entire window content to our rounded shape to avoid a second rounded backdrop
+        if let superview = panel.contentView?.superview {
+            superview.wantsLayer = true
+            superview.layer?.cornerRadius = 22
+            superview.layer?.masksToBounds = true
+        }
+        
+            // Center and bring to front
+        panel.center()
         NSApp.activate(ignoringOtherApps: true)
         NSRunningApplication.current.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
-        window = newWindow
+        panel.makeKeyAndOrderFront(nil)
+        
+            // Ensure first responder after activation (let SwiftUI set FocusState)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            NotificationCenter.default.post(name: .ScriptureSpotlightFocusField, object: nil)
+        }
+        
+        window = panel
+        NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: panel, queue: .main) { [weak self] _ in
+            self?.window = nil
+        }
     }
     
     @objc func showFromMenu() {
         showInputOverlay()
+    }
+}
+
+    // MARK: - Launch at Login helper (requires embedded Login Item helper target)
+enum LaunchAtLogin {
+        /// TODO: Set this to your embedded Login Item helper's bundle identifier
+    static let helperBundleID = "com.yourcompany.ScriptureSpotlight.Launcher"
+    
+    static var isEnabled: Bool {
+        let service = SMAppService.loginItem(identifier: helperBundleID)
+        return service.status == .enabled
+    }
+    
+    @discardableResult
+    static func setEnabled(_ enable: Bool) -> Bool {
+        let service = SMAppService.loginItem(identifier: helperBundleID)
+        do {
+            if enable { try service.register() } else { try service.unregister() }
+            return true
+        } catch {
+            NSLog("LaunchAtLogin error: \(error.localizedDescription)")
+            return false
+        }
+    }
+    
+        /// Opens System Settings → Login Items to let the user add the app manually.
+    static func openLoginItemsSettings() {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.LoginItems-Settings.extension") {
+            NSWorkspace.shared.open(url)
+        } else if let old = URL(string: "x-apple.systempreferences:com.apple.preference.users?LoginItems") {
+            NSWorkspace.shared.open(old)
+        }
     }
 }
 
@@ -78,12 +143,14 @@ struct Scripture_SpotlightApp: App {
     var body: some Scene {
         Settings {
             TipsView()
-                .preferredColorScheme(.dark)
         }
     }
 }
 
 struct TipsView: View {
+    @State private var launchAtLogin = LaunchAtLogin.isEnabled
+    @State private var showLoginError = false
+    
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("📖 Scripture Spotlight")
@@ -96,6 +163,28 @@ struct TipsView: View {
                 Text("- `John 3:16` → Opens that verse")
                 Text("- `wt sep 2025` → Opens September 2025 Watchtower")
                 Text("- `1 Pet 2:9` → Works with abbreviations")
+                Divider().padding(.vertical, 8)
+                HStack(spacing: 12) {
+                    Toggle(isOn: $launchAtLogin) {
+                        Text("Open at login")
+                    }
+                    .toggleStyle(.switch)
+                    .onChange(of: launchAtLogin) { isOn in
+                        if !LaunchAtLogin.setEnabled(isOn) {
+                            launchAtLogin.toggle()
+                            showLoginError = true
+                        }
+                    }
+                    
+                    Button("Open Login Items…") {
+                        LaunchAtLogin.openLoginItemsSettings()
+                    }
+                }
+                .alert("Couldn’t change Login Item", isPresented: $showLoginError) {
+                    Button("OK", role: .cancel) { }
+                } message: {
+                    Text("Make sure a Login Item helper target is embedded and its bundle identifier matches LaunchAtLogin.helperBundleID.")
+                }
             }
             Text("JW Library must be installed and properly configured for these links to open.")
                 .font(.footnote)
@@ -104,78 +193,146 @@ struct TipsView: View {
         .padding()
         .cornerRadius(14)
         .padding()
-        .frame(minWidth: 400, minHeight: 250)
+        .frame(minWidth: 400, minHeight: 100)
         .background(Color(.darkGray).opacity(0.1))
-        .preferredColorScheme(.dark)
+    }
+}
+
+struct GlassBackground: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let v = NSVisualEffectView()
+        v.material = .hudWindow
+        v.blendingMode = .withinWindow
+        v.state = .active
+        v.wantsLayer = true
+        v.layer?.cornerCurve = .continuous
+        v.layer?.cornerRadius = 22
+        v.layer?.masksToBounds = true
+        v.layer?.backgroundColor = NSColor(Color.black.opacity(0.35)).cgColor
+        return v
+    }
+    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {}
+}
+
+struct CapsuleFieldStyle: TextFieldStyle {
+    func _body(configuration: TextField<_Label>) -> some View {
+        configuration
+            .textFieldStyle(.plain)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(Color.white.opacity(0.08))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
+                    )
+            )
     }
 }
 
 struct InputOverlayView: View {
     @FocusState private var isFocused: Bool
     @State private var input = ""
-    @State private var showTips = true
     var onSubmit: () -> Void
     
     var body: some View {
         ZStack {
-            Color(.windowBackgroundColor).opacity(0.97)
-                .cornerRadius(18)
+            GlassBackground()
+                .allowsHitTesting(false)
+                .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+                .compositingGroup()
                 .shadow(radius: 24)
-            VStack(alignment: .leading, spacing: 16) {
-                Text("📖 Scripture Spotlight")
-                    .font(.title2)
-                    .bold()
+            
+            VStack(spacing: 14) {
+                    // Title bar mimicking the tab look
+                HStack(spacing: 8) {
+                    Text("Scripture Spotlight")
+                        .font(.title2)
+                        .foregroundStyle(.primary)
+                    Spacer()
+                }
+                .padding(.horizontal, 6)
                 
-                Text("Press ⏎ to launch JW Library with your reference.")
-                    .font(.subheadline)
-                
-                TextField("e.g., John 3:16 or wt Sep 2025", text: $input)
-                    .textFieldStyle(RoundedBorderTextFieldStyle())
-                    .focused($isFocused)
-                    .onSubmit {
+                    // Prompt field
+                HStack(spacing: 4) {
+                    TextField("Search Scripture Spotlight", text: $input)
+                        .textCase(nil)
+                        .focused($isFocused)
+                        .onSubmit {
+                            ScriptureLauncher.shared.handleInput(input)
+                            onSubmit()
+                        }
+                    Spacer(minLength: 4)
+                    Button(action: {
                         ScriptureLauncher.shared.handleInput(input)
                         onSubmit()
+                    }) {
+                        Image(systemName: "paperplane.fill")
+                            .imageScale(.large)
+                            .padding(.vertical, 6)
+                            .padding(.horizontal, 12)
                     }
-                
-                Button("Open") {
-                    ScriptureLauncher.shared.handleInput(input)
-                    onSubmit()
+                    .buttonStyle(.borderedProminent)
+                    .tint(Color(NSColor.systemPurple))
+                    .cornerRadius(14)
+                    .keyboardShortcut(.defaultAction)
                 }
-                .keyboardShortcut(.defaultAction)
+                .textFieldStyle(CapsuleFieldStyle())
                 
-                DisclosureGroup("Tips & Instructions", isExpanded: $showTips) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("• You can launch this tool from anywhere using ⌘⇧J.")
-                        Text("• You can also type scripture references directly in Spotlight")
-                        
-                        Text("✅ Supported formats:")
-                            .font(.headline)
-                            .padding(.top, 6)
-                        
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("• `John 3:16` → Opens that verse")
-                            Text("• `wt sep 2025` → Opens September 2025 Watchtower")
-                            Text("• `1 Pet 2:9` → Works with abbreviations")
-                        }
-                        
-                        Text("⚠️ JW Library must be installed and properly configured for these links to open.")
-                            .font(.footnote)
-                            .foregroundColor(.secondary)
-                    }
-                    .padding(.top, 4)
-                }
-                
+                TipsCard()
+                    .transition(.opacity)
             }
-            .padding()
-            .frame(minWidth: 420)
+            .padding(26)
+            .frame(minWidth: 720, minHeight: 180)
         }
-        .padding()
+        .padding(-10)
+        .cornerRadius(20)
         .preferredColorScheme(.dark)
         .onAppear {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                isFocused = true
-            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { isFocused = true }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .ScriptureSpotlightFocusField)) { _ in
+            isFocused = true
+        }
+        .onExitCommand { onSubmit() }
+    }
+}
+
+struct TipsCard: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: "lightbulb.fill").imageScale(.medium)
+                Text("Tips & Instructions").font(.headline)
+                Spacer()
+            }
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: "text.book.closed.fill").frame(width: 16)
+                    Text("Try **John 3:16**, **1 Pet 2:9**, **wt September 2025**, **dt**, or **wol <search term>**")
+                }
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: "command").frame(width: 16)
+                    Text("Press **⌘⇧J** anywhere to open this window")
+                }
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: "link").frame(width: 16)
+                    Text("JW Library must be installed for links to open")
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .font(.footnote)
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(Color.white.opacity(0.06))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
+                )
+        )
     }
 }
 

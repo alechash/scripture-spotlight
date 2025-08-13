@@ -189,6 +189,145 @@ enum InputDecoder {
     }
 }
 
+    // MARK: - AppIntents autocompletion (Spotlight parameter sheet)
+
+    // MARK: - Bible metadata (chapter counts per book)
+nonisolated(unsafe) let kChapterCountByBook: [BibleBook: Int] = [
+    .genesis: 50, .exodus: 40, .leviticus: 27, .numbers: 36, .deuteronomy: 34,
+    .joshua: 24, .judges: 21, .ruth: 4, ._1samuel: 31, ._2samuel: 24,
+    ._1kings: 22, ._2kings: 25, ._1chronicles: 29, ._2chronicles: 36,
+    .ezra: 10, .nehemiah: 13, .esther: 10, .job: 42, .psalms: 150,
+    .proverbs: 31, .ecclesiastes: 12, .songOfSolomon: 8, .isaiah: 66, .jeremiah: 52,
+    .lamentations: 5, .ezekiel: 48, .daniel: 12, .hosea: 14, .joel: 3,
+    .amos: 9, .obadiah: 1, .jonah: 4, .micah: 7, .nahum: 3,
+    .habakkuk: 3, .zephaniah: 3, .haggai: 2, .zechariah: 14, .malachi: 4,
+    .matthew: 28, .mark: 16, .luke: 24, .john: 21, .acts: 28,
+    .romans: 16, ._1corinthians: 16, ._2corinthians: 13, .galatians: 6, .ephesians: 6,
+    .philippians: 4, .colossians: 4, ._1thessalonians: 5, ._2thessalonians: 3,
+    ._1timothy: 6, ._2timothy: 4, .titus: 3, .philemon: 1, .hebrews: 13,
+    .james: 5, ._1peter: 5, ._2peter: 3, ._1john: 5, ._2john: 1, ._3john: 1, .jude: 1, .revelation: 22
+]
+
+    // Optional: a conservative max verse cap used when we cannot cheaply know per-chapter verse counts here.
+nonisolated(unsafe) let kConservativeMaxVerse = 200
+
+    // Sources (keep others for future; default will be .bible)
+enum ScriptureSource: String, AppEnum, CaseIterable, Sendable {
+    nonisolated(unsafe) static var typeDisplayRepresentation = TypeDisplayRepresentation(name: "Source")
+    nonisolated(unsafe) static var caseDisplayRepresentations: [ScriptureSource : DisplayRepresentation] = [
+        .bible: .init(title: "Bible"),
+        .watchtower: .init(title: "Watchtower"),
+        .insight: .init(title: "Insight"),
+        .wol: .init(title: "WOL")
+    ]
+    case bible, watchtower, insight, wol
+}
+
+    // Bible books with display names; Spotlight/Shortcuts will autocomplete this field
+enum BibleBook: Int, AppEnum, CaseIterable, Sendable {
+    nonisolated(unsafe) static var typeDisplayRepresentation = TypeDisplayRepresentation(name: "Bible Book")
+    
+    case genesis = 1, exodus, leviticus, numbers, deuteronomy,
+         joshua, judges, ruth, _1samuel, _2samuel,
+         _1kings, _2kings, _1chronicles, _2chronicles,
+         ezra, nehemiah, esther, job, psalms,
+         proverbs, ecclesiastes, songOfSolomon, isaiah, jeremiah,
+         lamentations, ezekiel, daniel, hosea, joel,
+         amos, obadiah, jonah, micah, nahum,
+         habakkuk, zephaniah, haggai, zechariah, malachi,
+         matthew = 40, mark, luke, john, acts,
+         romans, _1corinthians, _2corinthians, galatians, ephesians,
+         philippians, colossians, _1thessalonians, _2thessalonians,
+         _1timothy, _2timothy, titus, philemon, hebrews,
+         james, _1peter, _2peter, _1john, _2john, _3john, jude, revelation
+    
+    nonisolated(unsafe) static var allCases: [BibleBook] = [
+        .genesis, .exodus, .leviticus, .numbers, .deuteronomy,
+        .joshua, .judges, .ruth, ._1samuel, ._2samuel,
+        ._1kings, ._2kings, ._1chronicles, ._2chronicles,
+        .ezra, .nehemiah, .esther, .job, .psalms,
+        .proverbs, .ecclesiastes, .songOfSolomon, .isaiah, .jeremiah,
+        .lamentations, .ezekiel, .daniel, .hosea, .joel,
+        .amos, .obadiah, .jonah, .micah, .nahum,
+        .habakkuk, .zephaniah, .haggai, .zechariah, .malachi,
+        .matthew, .mark, .luke, .john, .acts,
+        .romans, ._1corinthians, ._2corinthians, .galatians, .ephesians,
+        .philippians, .colossians, ._1thessalonians, ._2thessalonians,
+        ._1timothy, ._2timothy, .titus, .philemon, .hebrews,
+        .james, ._1peter, ._2peter, ._1john, ._2john, ._3john, .jude, .revelation
+    ]
+    
+    nonisolated(unsafe) static var caseDisplayRepresentations: [BibleBook : DisplayRepresentation] = [
+        .genesis: .init(title: "Genesis"), .exodus: .init(title: "Exodus"), .leviticus: .init(title: "Leviticus"), .numbers: .init(title: "Numbers"), .deuteronomy: .init(title: "Deuteronomy"),
+        .joshua: .init(title: "Joshua"), .judges: .init(title: "Judges"), .ruth: .init(title: "Ruth"), ._1samuel: .init(title: "1 Samuel"), ._2samuel: .init(title: "2 Samuel"),
+        ._1kings: .init(title: "1 Kings"), ._2kings: .init(title: "2 Kings"), ._1chronicles: .init(title: "1 Chronicles"), ._2chronicles: .init(title: "2 Chronicles"),
+        .ezra: .init(title: "Ezra"), .nehemiah: .init(title: "Nehemiah"), .esther: .init(title: "Esther"), .job: .init(title: "Job"), .psalms: .init(title: "Psalms"),
+        .proverbs: .init(title: "Proverbs"), .ecclesiastes: .init(title: "Ecclesiastes"), .songOfSolomon: .init(title: "Song of Solomon"), .isaiah: .init(title: "Isaiah"), .jeremiah: .init(title: "Jeremiah"),
+        .lamentations: .init(title: "Lamentations"), .ezekiel: .init(title: "Ezekiel"), .daniel: .init(title: "Daniel"), .hosea: .init(title: "Hosea"), .joel: .init(title: "Joel"),
+        .amos: .init(title: "Amos"), .obadiah: .init(title: "Obadiah"), .jonah: .init(title: "Jonah"), .micah: .init(title: "Micah"), .nahum: .init(title: "Nahum"),
+        .habakkuk: .init(title: "Habakkuk"), .zephaniah: .init(title: "Zephaniah"), .haggai: .init(title: "Haggai"), .zechariah: .init(title: "Zechariah"), .malachi: .init(title: "Malachi"),
+        .matthew: .init(title: "Matthew"), .mark: .init(title: "Mark"), .luke: .init(title: "Luke"), .john: .init(title: "John"), .acts: .init(title: "Acts"),
+        .romans: .init(title: "Romans"), ._1corinthians: .init(title: "1 Corinthians"), ._2corinthians: .init(title: "2 Corinthians"), .galatians: .init(title: "Galatians"), .ephesians: .init(title: "Ephesians"),
+        .philippians: .init(title: "Philippians"), .colossians: .init(title: "Colossians"), ._1thessalonians: .init(title: "1 Thessalonians"), ._2thessalonians: .init(title: "2 Thessalonians"),
+        ._1timothy: .init(title: "1 Timothy"), ._2timothy: .init(title: "2 Timothy"), .titus: .init(title: "Titus"), .philemon: .init(title: "Philemon"), .hebrews: .init(title: "Hebrews"),
+        .james: .init(title: "James"), ._1peter: .init(title: "1 Peter"), ._2peter: .init(title: "2 Peter"), ._1john: .init(title: "1 John"), ._2john: .init(title: "2 John"), ._3john: .init(title: "3 John"), .jude: .init(title: "Jude"), .revelation: .init(title: "Revelation")
+    ]
+}
+
+    // Single intent that defaults to Bible and autocompletes the book parameter
+@MainActor
+struct ScriptureSearchIntent: AppIntent {
+    static var title: LocalizedStringResource = "Open Scripture"
+    static var description = IntentDescription("Opens a scripture in JW Library. Defaults to Bible.")
+    
+    @Parameter(title: "Source")
+    var source: ScriptureSource
+    
+    @Parameter(title: "Book")
+    var book: BibleBook?
+    
+    @Parameter(title: "Chapter")
+    var chapter: Int?
+    
+    @Parameter(title: "Verse")
+    var verse: Int?
+    
+    static var parameterSummary: some ParameterSummary {
+        Summary("Open \(\ScriptureSearchIntent.$book) \(\ScriptureSearchIntent.$chapter) \(\ScriptureSearchIntent.$verse)")
+    }
+    
+    static var openAppWhenRun = true
+    
+    func perform() async throws -> some IntentResult {
+        switch source {
+        case .bible:
+            guard let book else { return .result() }
+                // Validate ranges using metadata
+            let maxChapter = kChapterCountByBook[book] ?? 0
+            var safeChapter = chapter ?? 0
+            if safeChapter < 0 { safeChapter = 0 }
+            if maxChapter > 0 && safeChapter > maxChapter { safeChapter = maxChapter }
+            
+            var safeVerse = verse ?? 0
+            if safeVerse < 0 { safeVerse = 0 }
+                // We don't have per-chapter verse counts inline; apply a conservative upper bound
+                // TODO: Plug in per-chapter verse counts here for precise validation.
+            if safeVerse > kConservativeMaxVerse { safeVerse = kConservativeMaxVerse }
+            
+            let bookCode = String(format: "%02d", book.rawValue)
+            let ch = String(format: "%03d", safeChapter)
+            let vs = String(format: "%03d", safeVerse)
+            if let url = URL(string: "jwlibrary:///finder?srcid=jwlshare&wtlocale=E&prefer=lang&bible=\(bookCode)\(ch)\(vs)&pub=nwtsty") {
+                try await NSWorkspace.shared.open(url, configuration: .init())
+            }
+        default:
+                // For now we only implement Bible. Future: use `term` for other sources.
+            break
+        }
+        return .result()
+    }
+}
+
 @MainActor
 struct OpenScriptureIntent: AppIntent {
     static var title: LocalizedStringResource = "Open a Bible Verse"
