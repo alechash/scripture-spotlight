@@ -1,30 +1,142 @@
-//
-//  SpotlightExtension.swift
-//  Scripture Spotlight
-//
-//  Created by Jude Wilson (Bethel) on 8/1/25.
-//
+    //
+    //  SpotlightExtension.swift
+    //  Scripture Spotlight
+    //
+    //  Created by Jude Wilson (Bethel) on 8/1/25.
+    //
 
 import AppIntents
 import AppKit
 
-@MainActor
-struct OpenScriptureIntent: AppIntent {
-    static var title: LocalizedStringResource = "Open a Bible Verse"
-    static var parameterSummary: some ParameterSummary {
-        Summary("Open \(\.$reference)")
+    // MARK: - Document index (Insight / topical lookup)
+struct DocEntry: Decodable {
+    let MepsDocumentId: Int
+    let Title: String
+    let TocTitle: String?
+}
+
+final class DocumentIndex {
+    static let shared = DocumentIndex()
+    private(set) var entries: [DocEntry] = []
+    
+    private init() { load() }
+    
+    private func load() {
+            // Prefer a bundled resource named "Insight.json"
+        if let url = Bundle.main.url(forResource: "Insight", withExtension: "json"),
+           let data = try? Data(contentsOf: url) {
+            decode(data)
+            return
+        }
+            // Fallback: ~/Insight/Insight.json so you can iterate without bundling
+        let fallback = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Insight")
+            .appendingPathComponent("Insight.json")
+        if let data = try? Data(contentsOf: fallback) {
+            decode(data)
+        }
     }
+    
+    private func decode(_ data: Data) {
+        do {
+            let list = try JSONDecoder().decode([DocEntry].self, from: data)
+            self.entries = list
+        } catch {
+            NSLog("DocumentIndex decode error: \(error.localizedDescription)")
+        }
+    }
+    
+        /// Fuzzy lookup: prefer Title that starts with the query, else contains; then try TocTitle.
+    func lookupMEPSID(for rawQuery: String) -> Int? {
+        let q = rawQuery.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !q.isEmpty else { return nil }
+        if let hit = entries.first(where: { $0.Title.lowercased().hasPrefix(q) }) { return hit.MepsDocumentId }
+        if let hit = entries.first(where: { $0.Title.lowercased().contains(q) }) { return hit.MepsDocumentId }
+        if let hit = entries.first(where: { ($0.TocTitle ?? "").lowercased().contains(q) }) { return hit.MepsDocumentId }
+        return nil
+    }
+}
 
-    static var description = IntentDescription("Opens a scripture in JW Library.")
-
-    @Parameter(title: "Scripture Reference")
-    var reference: String
-
-    static var openAppWhenRun: Bool = true
-
-    func perform() async throws -> some IntentResult {
-        print("Requested scripture: \(reference)")
-
+    // MARK: - Unified input decoder
+enum InputDecoder {
+    static func decodeInput(_ raw: String) -> URL? {
+        let input = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !input.isEmpty else { return nil }
+        
+            // 1) Help:  help *
+        if let helpURL = decodeHelp(input) { return helpURL }
+        
+            // 1) Insight/Topical:  i <term>
+        if let topicURL = decodeInsight(input) { return topicURL }
+        
+            // 2) Daily Text
+        if let dtURL = decodeDailyText(input) { return dtURL }
+        
+            // 3) Watchtower issue:  wt <month> <yyyy>
+        if let wtURL = decodeWatchtower(input) { return wtURL }
+        
+            // 4) Bible reference
+        if let bibleURL = decodeBible(input) { return bibleURL }
+        
+        return nil
+    }
+    
+        // MARK: Modules
+    private static func decodeHelp(_ input: String) -> URL? {
+            // Accept: i respect  |  i  resp
+        if (input == "help") {
+            return URL(string: "https://google.com")
+        }
+        
+        return nil
+    }
+    
+    private static func decodeInsight(_ input: String) -> URL? {
+            // Accept: i respect  |  i  resp
+        let pattern = #"^i\s+(.+)$"#
+        guard let re = try? NSRegularExpression(pattern: pattern) else { return nil }
+        let range = NSRange(input.startIndex..., in: input)
+        guard let m = re.firstMatch(in: input, range: range) else { return nil }
+        let term = (input as NSString).substring(with: m.range(at: 1)).trimmingCharacters(in: .whitespaces)
+        guard let id = DocumentIndex.shared.lookupMEPSID(for: term) else { return nil }
+        let urlStr = "jwlibrary:///finder?srcid=jwlshare&wtlocale=E&prefer=lang&docid=\(id)"
+        return URL(string: urlStr)
+    }
+    
+    private static func decodeDailyText(_ input: String) -> URL? {
+        if ["dt", "daily", "daily text", "dailytext"].contains(input) {
+            let df = DateFormatter()
+            df.calendar = Calendar(identifier: .gregorian)
+            df.locale = Locale(identifier: "en_US_POSIX")
+            df.dateFormat = "yyyyMMdd" // correct calendar year
+            let today = df.string(from: Date())
+                // JW site supports alias "daily-text"; keeping https because app scheme may vary per install
+            let urlStr = "https://www.jw.org/finder?srcid=jwlshare&wtlocale=E&prefer=lang&alias=daily-text&date=\(today)"
+            return URL(string: urlStr)
+        }
+        return nil
+    }
+    
+    private static func decodeWatchtower(_ input: String) -> URL? {
+            // e.g., wt sep 2025  | wt september 2025 | wt se 2025
+        let pattern = #"^wt\s+([a-z]{2,})\s+(\d{4})$"#
+        guard let re = try? NSRegularExpression(pattern: pattern) else { return nil }
+        let range = NSRange(input.startIndex..., in: input)
+        guard let m = re.firstMatch(in: input, range: range) else { return nil }
+        let monthAbbr = (input as NSString).substring(with: m.range(at: 1))
+        let year = (input as NSString).substring(with: m.range(at: 2))
+        let months = [
+            "january":"01","february":"02","march":"03","april":"04","may":"05","june":"06",
+            "july":"07","august":"08","september":"09","october":"10","november":"11","december":"12"
+        ]
+        guard let (_, mm) = months.first(where: { key, _ in key.contains(monthAbbr) }) else { return nil }
+        let yy = String(year.suffix(2))
+        let urlStr = "jwlibrary:///finder?srcid=jwlshare&wtlocale=E&prefer=lang&pub=wp\(yy)&issue=\(year)\(mm)"
+        return URL(string: urlStr)
+    }
+    
+    private static func decodeBible(_ input: String) -> URL? {
+            // Bible books map
         let bibleBooks: [String: Int] = [
             "genesis": 1, "exodus": 2, "leviticus": 3, "numbers": 4, "deuteronomy": 5,
             "joshua": 6, "judges": 7, "ruth": 8, "1 samuel": 9, "2 samuel": 10,
@@ -42,79 +154,50 @@ struct OpenScriptureIntent: AppIntent {
             "2 peter": 61, "1 john": 62, "2 john": 63, "3 john": 64, "jude": 65,
             "revelation": 66
         ]
+        guard let re = try? NSRegularExpression(pattern: #"^([1-3]?\s?[a-z\s]+)(?:\s+(\d+)(?::(\d+))?)?$"#) else { return nil }
+        let range = NSRange(input.startIndex..., in: input)
+        guard let m = re.firstMatch(in: input, range: range) else { return nil }
+        var book = (input as NSString).substring(with: m.range(at: 1))
+            .trimmingCharacters(in: .whitespaces)
+            .lowercased()
+            .replacingOccurrences(of: ".", with: "")
+        let chapterStr: String = {
+            if m.range(at: 2).location != NSNotFound { return String(format: "%03d", Int((input as NSString).substring(with: m.range(at: 2))) ?? 0) }
+            return "000"
+        }()
+        let verseStr: String = {
+            if m.range(at: 3).location != NSNotFound { return String(format: "%03d", Int((input as NSString).substring(with: m.range(at: 3))) ?? 0) }
+            return "000"
+        }()
+        guard let (_, num) = bibleBooks.first(where: { key, _ in key.contains(book) }) else { return nil }
+        let bookCode = String(format: "%02d", num)
+        let urlStr = "jwlibrary:///finder?srcid=jwlshare&wtlocale=E&prefer=lang&bible=\(bookCode)\(chapterStr)\(verseStr)&pub=nwtsty"
+        return URL(string: urlStr)
+    }
+}
 
-        let input = reference.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
-        let bibleRegex = try! NSRegularExpression(pattern: #"^([1-3]?\s?[a-z\s]+)(?:\s+(\d+)(?::(\d+))?)?$"#)
-
-        if let match = bibleRegex.firstMatch(in: input, range: NSRange(input.startIndex..., in: input)) {
-            var bookStr = (input as NSString).substring(with: match.range(at: 1))
-                .trimmingCharacters(in: .whitespaces)
-                .lowercased()
-                .replacingOccurrences(of: ".", with: "")
-
-            let chapterStr: String
-            if match.range(at: 2).location != NSNotFound {
-                chapterStr = String(format: "%03d", Int((input as NSString).substring(with: match.range(at: 2))) ?? 0)
-            } else {
-                chapterStr = "000"
-            }
-
-            let verseStr: String
-            if match.range(at: 3).location != NSNotFound {
-                verseStr = String(format: "%03d", Int((input as NSString).substring(with: match.range(at: 3))) ?? 0)
-            } else {
-                verseStr = "000"
-            }
-
-            if let (matchedBook, bookNumber) = bibleBooks.first(where: { key, _ in key.contains(bookStr) }) {
-                print("Matched book: \(matchedBook)")
-                let bookCode = String(format: "%02d", bookNumber)
-                let urlStr = "jwlibrary:///finder?srcid=jwlshare&wtlocale=E&prefer=lang&bible=\(bookCode)\(chapterStr)\(verseStr)&pub=nwtsty"
-                
-                print(urlStr)
-                if let url = URL(string: urlStr) {
-                    try await NSWorkspace.shared.open(url, configuration: .init())
-                }
-            }
+@MainActor
+struct OpenScriptureIntent: AppIntent {
+    static var title: LocalizedStringResource = "Open a Bible Verse"
+    static var parameterSummary: some ParameterSummary {
+        Summary("Open \(\.$reference)")
+    }
+    
+    static var description = IntentDescription("Opens a scripture in JW Library.")
+    
+    @Parameter(title: "Scripture Reference")
+    var reference: String
+    
+    static var openAppWhenRun: Bool = true
+    
+    func perform() async throws -> some IntentResult {
+        let input = reference
+        print("Requested input: \(input)")
+        if let url = InputDecoder.decodeInput(input) {
+            try await NSWorkspace.shared.open(url, configuration: .init())
+        } else {
+            NSLog("No match for input: \(input)")
         }
-
-        // Check for Watchtower input
-        let wtRegex = try! NSRegularExpression(pattern: #"wt\s+([a-z]{2,})\s+(\d{4})"#)
-        if let match = wtRegex.firstMatch(in: input, range: NSRange(input.startIndex..., in: input)) {
-            let monthAbbr = (input as NSString).substring(with: match.range(at: 1))
-            let yearStr = (input as NSString).substring(with: match.range(at: 2))
-
-            let monthNames = [
-                "january": "01", "february": "02", "march": "03", "april": "04", "may": "05", "june": "06",
-                "july": "07", "august": "08", "september": "09", "october": "10", "november": "11", "december": "12"
-            ]
-
-            if let (fullMonth, mm) = monthNames.first(where: { key, _ in key.contains(monthAbbr) }) {
-                let yy = String(yearStr.suffix(2))
-                let urlStr = "jwlibrary:///finder?srcid=jwlshare&wtlocale=E&prefer=lang&pub=wp\(yy)&issue=\(yearStr)\(mm)"
-                print("Watchtower URL: \(urlStr)")
-                if let url = URL(string: urlStr) {
-                    try await NSWorkspace.shared.open(url, configuration: .init())
-                }
-            }
-        }
-
-        if (input == "dt" || input == "daily" || input == "daily text") {
-            let dateFormatter = DateFormatter()
-            dateFormatter.dateFormat = "YYYYMMDD"
-
-            let formattedDate = dateFormatter.string(from: Date())
-            
-            let urlStr = "https://www.jw.org/finder?srcid=jwlshare&wtlocale=E&prefer=lang&alias=daily-text&date=\(formattedDate)"
-
-            print("Daily Text URL: \(urlStr)")
-
-            if let url = URL(string: urlStr) {
-                try await NSWorkspace.shared.open(url, configuration: .init())
-            }
-
-        }
-
         return .result()
     }
 }

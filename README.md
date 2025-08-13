@@ -15,9 +15,3 @@ menu bar icon that looks like an open book that when pressed will open the windo
 You can enter spotlight using <kbd>Command</kbd>+<kbd>Space</kbd> and enter
 "Open a Bible Verse." You can add a quick key in spotlight to this such as
 "bible" or "scr."
-
-### Support
-
-You can support the development of the project by creating issues, pull
-requests, or if you want to support the cost of the Apple Developer Account, you
-can GitHub Sponsor me.
