@@ -63,7 +63,7 @@ enum InputDecoder {
         let input = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !input.isEmpty else { return nil }
         
-            // 1) Help:  help *
+            // 0) Help:  help *
         if let helpURL = decodeHelp(input) { return helpURL }
         
             // 1) Insight/Topical:  i <term>
@@ -76,6 +76,9 @@ enum InputDecoder {
         if let wtURL = decodeWatchtower(input) { return wtURL }
         
             // 4) Bible reference
+        if let wolURL = decodeWol(input) { return wolURL }
+        
+            // 5) Bible reference
         if let bibleURL = decodeBible(input) { return bibleURL }
         
         return nil
@@ -83,9 +86,8 @@ enum InputDecoder {
     
         // MARK: Modules
     private static func decodeHelp(_ input: String) -> URL? {
-            // Accept: i respect  |  i  resp
         if (input == "help") {
-            return URL(string: "https://google.com")
+            return URL(string: "https://judes.club/app/scripture-spotlight")
         }
         
         return nil
@@ -100,6 +102,17 @@ enum InputDecoder {
         let term = (input as NSString).substring(with: m.range(at: 1)).trimmingCharacters(in: .whitespaces)
         guard let id = DocumentIndex.shared.lookupMEPSID(for: term) else { return nil }
         let urlStr = "jwlibrary:///finder?srcid=jwlshare&wtlocale=E&prefer=lang&docid=\(id)"
+        return URL(string: urlStr)
+    }
+    
+    private static func decodeWol(_ input: String) -> URL? {
+            // Accept: wol <term>
+        let pattern = #"^wol\s+(.+)$"#
+        guard let re = try? NSRegularExpression(pattern: pattern) else { return nil }
+        let range = NSRange(input.startIndex..., in: input)
+        guard let m = re.firstMatch(in: input, range: range) else { return nil }
+        let term = (input as NSString).substring(with: m.range(at: 1)).trimmingCharacters(in: .whitespaces)
+        let urlStr = "https://wol.jw.org/en/wol/s/r1/lp-e?q=\(term)&p=par&r=occ&st=a"
         return URL(string: urlStr)
     }
     
